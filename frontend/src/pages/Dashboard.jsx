@@ -84,13 +84,22 @@ export default function Dashboard() {
       const res = await axios.post('/api/v1/meetings/create', { title });
       const code = res.data.meeting_code;
       const link = `${window.location.origin}/meet/${code}`;
-      navigator.clipboard.writeText(link);
-      
-      if(confirm(`${title} Created!\n\nCode: ${code}\n\nLink copied to clipboard. Join now?`)) {
+
+      // Try clipboard, but don't fail if it doesn't work
+      let clipboardNote = "";
+      try {
+        await navigator.clipboard.writeText(link);
+        clipboardNote = "\n\nLink copied to clipboard.";
+      } catch (clipErr) {
+        clipboardNote = `\n\nLink: ${link}`;
+      }
+
+      if (confirm(`${title} Created!\n\nCode: ${code}${clipboardNote}\n\nJoin now?`)) {
         navigate(`/meet/${code}`);
       }
-    } catch (e) { 
-      alert("Error creating meeting"); 
+    } catch (e) {
+      console.error("Create meeting error:", e);
+      alert("Error creating meeting: " + (e.response?.data?.detail || e.message || "Unknown"));
     }
   };
 
