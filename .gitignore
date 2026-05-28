@@ -14,3 +14,12 @@ yarn-error.log*
 venv/
 __pycache__/
 *.pyc
+# Uploads test data
+backend/uploads/*
+# Old cloud DB cert
+ca.pem
+# OS files
+.DS_Store
+**/.DS_Store
+# HF cache
+.cache/
