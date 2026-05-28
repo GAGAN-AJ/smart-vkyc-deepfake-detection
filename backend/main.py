@@ -20,6 +20,7 @@ import uvicorn
 from werkzeug.utils import secure_filename
 import torch
 import pytesseract 
+from rapidfuzz import fuzz
 from sqlalchemy.orm import Session, joinedload
 from pydantic import BaseModel
 
@@ -86,9 +87,12 @@ app.add_middleware(
 )
 
 # --- Tesseract & Device ---
-tesseract_path = shutil.which('tesseract')
-if tesseract_path: pytesseract.pytesseract.tesseract_cmd = tesseract_path
-else: logging.warning("Tesseract not found. OCR will fail.")
+tesseract_path = shutil.which('tesseract') or r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+if os.path.exists(tesseract_path):
+    pytesseract.pytesseract.tesseract_cmd = tesseract_path
+    logging.info(f"Tesseract found at {tesseract_path}")
+else:
+    logging.warning("Tesseract not found. OCR will fail.")
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 if torch.backends.mps.is_available(): DEVICE = torch.device("mps")
@@ -391,20 +395,37 @@ async def verify_identity(
         final_decision = "FAIL"
         reasons = []
 
+        # --- THREE-WAY NAME COMPARISON ---
+        # --- NAME COMPARISON: OCR (card) vs Database (registered) ---
+        ocr_text = verifier.extract_text_with_ocr()
+        db_name = f"{current_user.first_name or ''} {current_user.last_name or ''}".strip()
+
+        # Check if the registered DB name appears in the OCR-extracted card text
+        ocr_vs_db_score = fuzz.partial_ratio(db_name.lower(), ocr_text.lower()) if db_name and ocr_text else 0
+        ocr_vs_db_match = ocr_vs_db_score >= 70
+
+        name_comparison = {
+            "db_name": db_name or "Not set",
+            "ocr_text_found": bool(ocr_text.strip()),
+            "ocr_vs_db_score": ocr_vs_db_score,
+            "ocr_vs_db_match": ocr_vs_db_match,
+        }
+
         if doc_verification_result.get("status") == "REJECTED":
             reasons.append("Document rejected (QR/OCR mismatch).")
         elif video and not face_match_result.get("custom_verified"):
-             reasons.append(f"Face mismatch (Dist: {face_match_result.get('distance'):.2f}).")
-        else: 
+            reasons.append(f"Face mismatch (Dist: {face_match_result.get('distance'):.2f}).")
+        else:
             final_decision = "PASS"
             reasons.append("All checks passed.")
             new_doc_record.is_verified = True
             db.commit()
 
         return {
-                "decision": final_decision,
-                "reasons": reasons,
-                "checks": {
+            "decision": final_decision,
+            "reasons": reasons,
+            "name_comparison": name_comparison,
+            "checks": {
                 "document": doc_verification_result,
                 "face_match": face_match_result
             }

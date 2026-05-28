@@ -1,4 +1,5 @@
 import cv2
+import numpy as np
 import pytesseract
 from PIL import Image
 from lxml import etree
@@ -22,13 +23,64 @@ class DocumentVerifier:
         if self.image is None:
             raise ValueError(f"OpenCV could not read image at {self.image_path}.")
 
+    def _try_decode(self, img):
+        """Try both single and multi QR detection on a given image."""
+        detector = cv2.QRCodeDetector()
+        # Try multi first (better for dense codes)
+        try:
+            ok, decoded_info, points, _ = detector.detectAndDecodeMulti(img)
+            if ok:
+                for data in decoded_info:
+                    if data:
+                        return data
+        except Exception:
+            pass
+        # Fallback to single
+        try:
+            data, points, _ = detector.detectAndDecode(img)
+            if data:
+                return data
+        except Exception:
+            pass
+        return None
+
     def decode_qr_code(self):
         try:
-            detector = cv2.QRCodeDetector()
-            data, points, _ = detector.detectAndDecode(self.image)
+            # Attempt 1: original image
+            data = self._try_decode(self.image)
+
+            # Attempt 2: grayscale
             if not data:
-                logging.warning("No QR code found.")
+                gray = cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY)
+                data = self._try_decode(gray)
+
+            # Attempt 3: upscaled versions (helps with small/dense QR)
+            if not data:
+                for scale in [1.5, 2.0, 3.0]:
+                    resized = cv2.resize(self.image, None, fx=scale, fy=scale,
+                                         interpolation=cv2.INTER_CUBIC)
+                    data = self._try_decode(resized)
+                    if data:
+                        break
+
+            # Attempt 4: sharpened grayscale
+            if not data:
+                gray = cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY)
+                sharpen_kernel = np.array([[-1, -1, -1], [-1, 9, -1], [-1, -1, -1]])
+                sharpened = cv2.filter2D(gray, -1, sharpen_kernel)
+                data = self._try_decode(sharpened)
+
+            # Attempt 5: thresholded
+            if not data:
+                gray = cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY)
+                _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+                data = self._try_decode(thresh)
+
+            if not data:
+                logging.warning("No QR code found after all preprocessing attempts.")
                 return None
+
+            logging.info("QR code detected successfully.")
             xml_start = data.find("<?xml")
             if xml_start == -1:
                 return {"raw_data": data}

@@ -30,22 +30,15 @@ export default function DocumentVerification() {
 
     const formData = new FormData();
     formData.append('document', file);
-    
-    // NOTE: We removed the dummy video logic. 
-    // We now only send the document, as discussed.
 
     try {
         const res = await axios.post('/api/v1/verify', formData, {
             headers: { 'Content-Type': 'multipart/form-data' }
         });
-        
-        // Handle backend response
         setResult(res.data);
         setActiveStep(2);
-        
     } catch (err) {
         console.error("Verification Error:", err);
-        // Extract the real error message from the backend if available
         const backendMessage = err.response?.data?.detail || "Server connection failed";
         setError(backendMessage);
         setActiveStep(0);
@@ -124,7 +117,6 @@ export default function DocumentVerification() {
 
         {activeStep === 2 && result && (
           <motion.div initial={{ scale: 0.8 }} animate={{ scale: 1 }}>
-            {/* Check specific document status from backend response */}
             {result.checks?.document?.status === 'VERIFIED' || result.decision === 'PASS' || result.decision === 'PARTIAL_PASS' ? (
               <>
                 <CheckCircle sx={{ fontSize: 80, color: 'success.main', mb: 2 }} />
@@ -134,17 +126,48 @@ export default function DocumentVerification() {
                 <Typography variant="body1" color="text.secondary" sx={{ mb: 4 }}>
                   Your ID has been processed. You can now proceed to the video call.
                 </Typography>
-                <Button variant="contained" onClick={() => navigate('/dashboard')}>
-                  Go to Dashboard
-                </Button>
               </>
             ) : (
-              <>
-                <Alert severity="error" sx={{ mb: 3 }}>
-                  Verification Failed: {result.reasons?.[0] || result.checks?.document?.reason || "Unknown Error"}
-                </Alert>
-                <Button onClick={() => { setFile(null); setActiveStep(0); }}>Try Again</Button>
-              </>
+              <Alert severity="error" sx={{ mb: 3 }}>
+                Verification Failed: {result.reasons?.[0] || result.checks?.document?.reason || "Unknown Error"}
+              </Alert>
+            )}
+
+            {result.name_comparison && (
+              <Box sx={{ mt: 2, mb: 4, p: 3, borderRadius: 3, bgcolor: 'rgba(255,255,255,0.04)', textAlign: 'left' }}>
+                <Typography variant="h6" fontWeight="bold" gutterBottom>
+                  Name Verification
+                </Typography>
+
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', py: 1, borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+                  <Typography color="text.secondary">Registered Name (DB):</Typography>
+                  <Typography fontWeight="bold">{result.name_comparison.db_name}</Typography>
+                </Box>
+
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', py: 1, borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+                  <Typography color="text.secondary">Text Extracted from Card:</Typography>
+                  <Typography fontWeight="bold" color={result.name_comparison.ocr_text_found ? 'success.main' : 'error.main'}>
+                    {result.name_comparison.ocr_text_found ? 'Yes' : 'No'}
+                  </Typography>
+                </Box>
+
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', py: 1 }}>
+                  <Typography color="text.secondary">Name Match (Card vs Registered):</Typography>
+                  <Typography fontWeight="bold" color={result.name_comparison.ocr_vs_db_match ? 'success.main' : 'error.main'}>
+                    {result.name_comparison.ocr_vs_db_match
+                      ? `Match (${result.name_comparison.ocr_vs_db_score}%)`
+                      : `No Match (${result.name_comparison.ocr_vs_db_score}%)`}
+                  </Typography>
+                </Box>
+              </Box>
+            )}
+
+            {result.decision === 'PASS' ? (
+              <Button variant="contained" onClick={() => navigate('/dashboard')}>
+                Go to Dashboard
+              </Button>
+            ) : (
+              <Button onClick={() => { setFile(null); setActiveStep(0); }}>Try Again</Button>
             )}
           </motion.div>
         )}
